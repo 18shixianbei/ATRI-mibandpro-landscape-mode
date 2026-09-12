@@ -1,0 +1,386 @@
+<template>
+  <div class="page" @swipe="ban">
+    <image src="/common/bg.png" class="bg-img"></image>
+    <image class="bg-img" style="position: absolute;top: 0;left: 0;" if="{{trueEnd}}" src="/common/ATRI_TrueEnding.png"></image>
+
+    <!-- 主菜单按钮 -->
+    <div class="menu-btn" style="left: 4px;top: 4px;" if="{{!recovery && !settingsPage && !tips}}" @click="toSettings()">
+      <text class="menu-btn-text">设置</text>
+    </div>
+    <div class="menu-btn" style="left: 4px;top: 84px;" if="{{!recovery && !settingsPage && !tips}}" @click="toRecovery()">
+      <text class="menu-btn-text">继续</text>
+    </div>
+    <div class="menu-btn" style="left: 4px;top: 164px;" if="{{!recovery && !settingsPage && !tips}}" @click="toPage('detail')">
+      <text class="menu-btn-text">开始</text>
+    </div>
+    <div class="menu-btn" style="left: 4px;top: 244px;" if="{{!recovery && !settingsPage && !tips}}" @click="showTips()">
+      <text class="menu-btn-text">关于</text>
+    </div>
+    <div class="menu-btn" style="left: 4px;top: 324px;" if="{{!recovery && !settingsPage && !tips}}" @click="exit">
+      <text class="menu-btn-text">退出</text>
+    </div>
+    <div class="menu-btn" style="left: 4px;top: 404px;" if="{{trueEnd && !recovery && !settingsPage && !tips}}" @click="loadRecoveryData('TE')">
+      <text class="menu-btn-text" style="font-size: 15px;">TRUE END</text>
+    </div>
+
+    <!-- 存档读取页 -->
+    <div class="overlay" if="{{recovery}}" @swipe="back">
+      <scroll scroll-y="true" class="overlay-scroll">
+        <text class="overlay-label">点击读取存档</text>
+        <text class="overlay-btn" for="{{recoveryData}}" @click="loadRecoveryData($idx)">存档{{$idx+1}}</text>
+      </scroll>
+      <text class="back-btn" @click="back">返回</text>
+    </div>
+
+    <!-- 设置页 -->
+    <div class="overlay" if="{{settingsPage}}" @swipe="ban">
+      <image src="/common/ev000b.png" class="bg-img"></image>
+      <div class="settings-bg"></div>
+      <text class="settings-btn" style="left: 99px;top: 25px;" @click="saveSettings()">保存</text>
+      <text class="settings-btn" style="left: 189px;top: 25px;" @click="back()">退出</text>
+      <text class="settings-label" style="top: 80px;left: 30px;">显示速度({{settings.textSpeed}})</text>
+      <slider class="settings-slider" style="top: 115px;left: 30px;" min="20" max="60" step="1" onchange="changeTextSpeed()"></slider>
+      <text class="settings-label" style="top: 155px;left: 30px;">文字大小({{settings.textSize}})</text>
+      <slider class="settings-slider" style="top: 190px;left: 30px;" min="20" max="32" step="1" onchange="changeTextSize()"></slider>
+      <scroll scroll-y="true" class="preview-scroll">
+        <text style="color: #FFFFFF;font-weight: bold;width: 100%;text-align: left;font-size: {{settings.textSize}}px;">{{showText}}</text>
+      </scroll>
+    </div>
+
+    <!-- about -->
+    <div class="overlay-light" if="{{tips}}" @swipe="ban">
+      <text class="tips-text">在"设置"中调整显示速度和文字大小</text>
+      <text class="tips-text">游戏中点击"退出"按钮进入菜单</text>
+      <text class="tips-text" style="color: #ff0000;">请勿反复点击开始！耐心等待加载</text>
+      <text class="tips-text">---------------</text>
+      <text class="tips-text">制作：@liuyuze61，@18sxb</text>
+      <text class="tips-text">感谢：@Wxz226，@TLE</text>
+      <text class="tips-text">---------------</text>
+      <text class="tips-btn" @click="closeTips()">确定</text>
+    </div>
+  </div>
+</template>
+
+<script>
+import router from "@system.router";
+import storage from '@system.storage';
+import prompt from '@system.prompt';
+
+export default {
+  private: {
+    recovery: false,
+    recoveryData: [],
+    settingsPage: false,
+    settings: {
+      textSpeed: 40,
+      textSize: 22
+    },
+    showText: '',
+    index: 0,
+    tips: false,
+    trueEnd: false,
+    animating: false,
+    timerId: 0,
+  },
+  onInit(){
+    storage.get({
+      key: 'recoveryData',
+      success: (data) => {
+        if(data){
+          this.recoveryData = JSON.parse(data);
+        }
+      },
+      fail:()=>{},
+    });
+    storage.get({
+      key: 'settings',
+      success: (data) => {
+        if(data){
+          this.settings = JSON.parse(data);
+        }
+      },
+      fail:()=>{},
+    });
+    storage.get({
+      key: 'tips',
+      success: (data) => {
+        if(data){
+          if(JSON.parse(data) !== 61){
+            this.tips = true;
+          }
+        }else{
+          this.tips = true;
+        }
+      },
+      fail:()=>{},
+    });
+    storage.get({
+      key: 'fin',
+      success: (data) => {
+        if(data){
+          var fin = JSON.parse(data);
+          console.log(fin)
+          if(fin.HE === true&&fin.BE === true){this.trueEnd = true}
+        }
+      },
+      fail:()=>{},
+    });
+  },
+  onShow(){
+    if(this.settingsPage && !this.animating){
+      this.index = 0;
+      this.showText = '';
+      this.animating = true;
+      this.zhuzi();
+    }
+  },
+  onHide(){
+    this.animating = false;
+  },
+  toPage(page) {
+    router.push({uri: `pages/${page}`})
+  },
+  exit(){
+    this.$app.exit()
+  },
+  ban(){
+    console.log('ban')
+  },
+  toRecovery(){
+    if(this.recoveryData.length>0){this.recovery = true}
+  },
+  toSettings(){
+    this.settingsPage = true;
+    this.index = 0;
+    this.showText = '';
+    this.animating = true;
+    this.zhuzi();
+  },
+  showTips(){
+    this.tips = true;
+  },
+  back(a){
+    if(a && a.direction == 'right'){
+      if(this.recovery){this.recovery = false; return}
+      if(this.settingsPage){this.settingsPage = false; return}
+    } else {
+      if(this.recovery){this.recovery = false}
+      else if(this.settingsPage){this.settingsPage = false}
+    }
+  },
+  loadRecoveryData(idx){
+    router.push({
+      uri: `pages/detail`,
+      params:{load: idx}
+    })
+  },
+  changeTextSize(e){
+    this.settings.textSize = e.progress;
+  },
+  changeTextSpeed(e){
+    this.settings.textSpeed = e.progress;
+  },
+  zhuzi(){
+    var text = 'Atri -My Dear Moments-\n文字显示样本';
+    var self = this;
+    if (this.index < text.length){
+      this.showText += text.charAt(this.index);
+      this.index++;
+      this.timerId = setTimeout(function(){
+        if(self.animating) {
+          self.zhuzi()
+        }
+      }, this.settings.textSpeed)
+    }
+    else{
+      this.animating = false;
+      if(this.settingsPage){
+        this.timerId = setTimeout(function(){
+          if(self.settingsPage) {
+            self.index = 0;
+            self.showText = '';
+            self.animating = true;
+            self.zhuzi()
+          }
+        }, 2000);
+      }
+    }
+  },
+  saveSettings(){
+    storage.set({
+      key: 'settings',
+      value: JSON.stringify(this.settings),
+      success: () => {prompt.showToast({message: '保存成功'})},
+      fail:()=>{},
+    })
+  },
+  closeTips(){
+    this.tips = false;
+    storage.set({
+      key: 'tips',
+      value: JSON.stringify(61),
+      success: () => {},
+      fail:()=>{},
+    })
+  },
+}
+</script>
+
+<style>
+.page {
+  width: 336px;
+  height: 480px;
+  overflow: hidden;
+}
+.bg-img {
+  width: 336px;
+  height: 480px;
+}
+/* 主菜单按钮 */
+.menu-btn {
+  position: absolute;
+  width: 72px;
+  height: 72px;
+  background-color: #FF9999;
+  border-radius: 10px;
+}
+
+.menu-btn-text {
+  position: absolute;
+  width: 72px;
+  height: 72px;
+  left: 0;
+  top: 0;
+  color: #FFFFFF;
+  font-size: 21px;
+  font-weight: bold;
+  text-align: center;
+  line-height: 72px;
+  transform: rotate(90deg);
+  transform-origin: 36px 36px;
+}
+/*  */
+.overlay {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 336px;
+  height: 480px;
+  background-color: rgba(0, 0, 0, 0.7);
+}
+/* 返回按钮 */
+.back-btn {
+  position: absolute;
+  left: 10px;
+  top: 10px;
+  width: 70px;
+  height: 40px;
+  background-color: #FF9999;
+  border-radius: 8px;
+  color: #FFFFFF;
+  font-size: 20px;
+  font-weight: bold;
+  text-align: center;
+  z-index: 100;
+}
+/* about */
+.overlay-light {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 336px;
+  height: 480px;
+  background-color: rgba(255, 255, 255, 0.92);
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+}
+.overlay-scroll {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 336px;
+  height: 480px;
+  overflow: hidden;
+  flex-direction: column;
+  align-items: center;
+}
+.overlay-label {
+  width: 250px;
+  height: 50px;
+  color: #FFFFFF;
+  font-size: 22px;
+  font-weight: bold;
+  text-align: center;
+  margin-bottom: 15px;
+}
+.overlay-btn {
+  width: 250px;
+  height: 55px;
+  background-color: #FF9999;
+  border-radius: 10px;
+  color: #FFFFFF;
+  font-size: 24px;
+  font-weight: bold;
+  text-align: center;
+  margin-bottom: 15px;
+}
+/* 设置页 */
+.settings-bg {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 336px;
+  height: 480px;
+  background-color: #FF9999;
+  opacity: 0.15;
+}
+.settings-btn {
+  position: absolute;
+  width: 72px;
+  height: 36px;
+  background-color: #FF9999;
+  border-radius: 8px;
+  color: #FFFFFF;
+  font-size: 20px;
+  font-weight: bold;
+  text-align: center;
+}
+.settings-label {
+  position: absolute;
+  font-size: 22px;
+  color: #FFFFFF;
+  font-weight: bold;
+}
+.settings-slider {
+  position: absolute;
+  width: 276px;
+}
+.preview-scroll {
+  position: absolute;
+  top: 240px;
+  left: 20px;
+  width: 296px;
+  height: 220px;
+  overflow: hidden;
+}
+/* 关于/提示页 */
+.tips-text {
+  font-size: 22px;
+  color: #333333;
+  font-weight: bold;
+  text-align: center;
+  margin-bottom: 12px;
+}
+.tips-btn {
+  width: 160px;
+  height: 50px;
+  background-color: #FF9999;
+  border-radius: 10px;
+  color: #FFFFFF;
+  font-size: 22px;
+  font-weight: bold;
+  text-align: center;
+  margin-top: 10px;
+}
+</style>

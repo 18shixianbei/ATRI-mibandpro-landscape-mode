@@ -1,0 +1,570 @@
+<template>
+  <div class="page" @swipe="onSwipe">
+    <!-- 图片层-->
+    <div class="image-layer" @click="nextDialogue">
+      <image src="/common/{{Img}}" class="full-img"></image>
+      <image src="/common/{{gameData.scenes[currentScene].Img}}" style="top:{{gameData.scenes[currentScene].ImgTop}}px;left:{{gameData.scenes[currentScene].ImgLeft}}px;position: absolute;" if="{{gameData.scenes[currentScene].Img !== undefined}}"></image>
+    </div>
+
+    <!-- test-->
+    <div class="text-panel-bg" if="{{gameData.scenes[currentScene].choices == undefined && Img !== 'bg.png'}}" @click="nextDialogue"></div>
+
+    <!-- 旋转文字层（角色名+对话文字+退出按钮，整体旋转90度） -->
+    <div class="text-rotated" if="{{gameData.scenes[currentScene].choices == undefined && Img !== 'bg.png'}}">
+      <text class="char-name-h">{{character}}</text>
+      <scroll scroll-y="true" class="dialogue-scroll-h" @click="nextDialogue">
+        <text class="dialogue-text-h" style="font-size: {{settings.textSize}}px;">{{showText}}</text>
+      </scroll>
+      <text class="exit-btn-h" if="{{!menu && recovery === 0 && END === ''}}" @click="openMenu">退出</text>
+    </div>
+
+    <!-- 选项页 -->
+    <div class="choice-overlay" if="{{gameData.scenes[currentScene].choices !== undefined && !menu}}">
+      <text class="choice-btn" style="top: 180px;" @click="selectChoice(0)">{{gameData.scenes[currentScene].choices[0].text}}</text>
+      <text class="choice-btn" style="top: 260px;" @click="selectChoice(1)">{{gameData.scenes[currentScene].choices[1].text}}</text>
+    </div>
+
+    <!-- 菜单页 -->
+    <div class="overlay" if="{{menu}}">
+      <text class="overlay-btn" @click="toRecoveryPage(1)">保存</text>
+      <text class="overlay-btn" @click="toRecoveryPage(2)">加载</text>
+      <text class="overlay-btn" @click="skipScene(1)">跳过场景</text>
+      <text class="overlay-btn" @click="skipChapter()">跳过章节</text>
+      <text class="overlay-btn" @click="back('e')">返回主页</text>
+      <text class="back-btn" @click="back('c')">返回</text>
+    </div>
+
+    <!-- 存档页 -->
+    <div class="overlay" if="{{recovery===1}}" @swipe="onSwipe">
+      <scroll scroll-y="true" class="overlay-scroll">
+        <text class="overlay-label">长按删除，点击覆盖</text>
+        <text class="overlay-btn" for="{{recoveryData}}" @click="saveRecoveryData($idx)" @longpress="deleteRecoveryData($idx)">存档{{$idx+1}}</text>
+        <text class="overlay-btn" @click="saveRecoveryData('new')">新建存档</text>
+      </scroll>
+      <text class="back-btn" @click="back('c')">返回</text>
+    </div>
+
+    <!-- 读档页 -->
+    <div class="overlay" if="{{recovery===2}}" @swipe="onSwipe">
+      <scroll scroll-y="true" class="overlay-scroll">
+        <text class="overlay-label">点击读取存档</text>
+        <text class="overlay-btn" for="{{recoveryData}}" @click="loadRecoveryData($idx)" @longpress="consoleData($idx)">存档{{$idx+1}}</text>
+      </scroll>
+      <text class="back-btn" @click="back('c')">返回</text>
+    </div>
+
+    <!-- 结局页 -->
+    <div class="overlay-light" if="{{END != ''}}">
+      <text class="ending-text">达成结局</text>
+      <text class="ending-title">{{END}}</text>
+      <text class="overlay-btn" @click="back('e')">返回主页</text>
+    </div>
+
+    <!-- 感谢游玩页 -->
+    <div class="overlay-light" if="{{gameOver}}">
+      <text class="ending-text">感谢游玩</text>
+      <text class="ending-title">-Fin-</text>
+      <text class="overlay-btn" @click="back('e')">返回主页</text>
+    </div>
+  </div>
+</template>
+
+<script>
+import router from '@system.router'
+import storage from '@system.storage';
+import prompt from '@system.prompt';
+import file from '@system.file';
+
+export default {
+  private: {
+    gameData: {
+      scenes: []
+    },
+    index: 0,
+    canContinue: true,
+    currentScene: 0,
+    currentDialogue: 0,
+    Img: 'bg.png',
+    showText: '',
+    character: '',
+    settings: {
+      textSpeed: 40,
+      textSize: 22
+    },
+    chapter: 0,
+    menu: false,
+    recovery: 0,
+    choice: [],
+    recoveryData: [],
+    load: null,
+    END: '',
+    chapterList:['b999','b101','b102','b103','b111','b112','b113','b114','b121','b122','b123','b124','b200','b201','b202','b203','b204','b205','b206','b207','b301','b302','b303','b304','b401','b402','b403','b404','b405','b406','b407','b501','b601','b701'],
+    currentText: '',
+    animating: false,
+    gameOver: false,
+    timerId: 0,
+  },
+  onInit(){
+    storage.get({
+      key: 'recoveryData',
+      success: (data) => {
+        if(data){
+          this.recoveryData = JSON.parse(data);
+        }
+        if(this.load){
+          if(this.load === 'TE'){
+            this.loadData("TE");
+          }
+          else{this.loadRecoveryData(this.load)}
+        }else{
+          this.loadData(this.chapter);
+        }
+      },
+      fail:()=>{},
+    });
+    storage.get({
+      key: 'settings',
+      success: (data) => {
+        if(data){
+          this.settings = JSON.parse(data);
+        }
+      },
+      fail:()=>{},
+    });
+  },
+  onShow(){
+    if(!this.canContinue && this.currentText && this.index < this.currentText.length){
+      this.animating = true;
+      this.zhuzi(this.currentText);
+    }
+  },
+  onHide(){
+    this.animating = false;
+  },
+  loadData(chapter){
+    console.log('加载章节', this.chapterList[chapter])
+    if(chapter==='BE'){this.loadData(32);this.chapter='BE';return}
+    if(chapter==='TE'){this.loadData(33);this.chapter='TE';return}
+    if(!this.chapterList[chapter]){
+      this.gameOver = true;
+      return;
+    }
+    file.readText({
+      uri: `/common/${this.chapterList[chapter]}.txt`,
+      success: (data)=> {
+        if(data){
+          this.gameData.scenes = JSON.parse(data.text);
+          this.loadScene(this.currentScene);
+        }
+      },
+      fail: (code)=> {
+        console.log(`handling fail, code = ${code}`);
+        this.gameOver = true;
+      }
+    });
+  },
+  showBackground(image) {
+    this.Img = image;
+  },
+  showDialogue(dialogue) {
+    this.showText = '';
+    this.character = dialogue.character;
+    this.canContinue = false;
+    this.index = 0;
+    this.currentText = dialogue.text;
+    this.animating = true;
+    this.zhuzi(dialogue.text);
+  },
+  zhuzi(text){
+    if (this.index < text.length){
+      this.showText += text.charAt(this.index);
+      this.index++;
+      var self = this;
+      this.timerId = setTimeout(function(){
+        if(self.animating) {
+          self.zhuzi(text);
+        }
+      }, this.settings.textSpeed);
+    }
+    else{
+      this.animating = false;
+      this.canContinue = true;
+    }
+  },
+  loadScene(sceneIndex) {
+    const scene = this.gameData.scenes[sceneIndex];
+    this.showBackground(scene.background);
+    this.currentDialogue = 0;
+    if(scene.choices){return}
+    this.showDialogue(scene.dialogues[this.currentDialogue]);
+  },
+  nextDialogue() {
+    if (this.menu || this.recovery !== 0 || this.END !== '' || this.gameOver) return;
+    if (this.gameData.scenes.length === 0) return;
+    if (this.gameData.scenes[this.currentScene] && this.gameData.scenes[this.currentScene].choices !== undefined) return;
+    if (!this.canContinue) return;
+    this.scrollToTop();
+    this.canContinue = false;
+    const scene = this.gameData.scenes[this.currentScene];
+    if (this.currentDialogue < scene.dialogues.length - 1) {
+      this.currentDialogue++;
+      this.showDialogue(scene.dialogues[this.currentDialogue]);
+    } else if (this.currentScene < this.gameData.scenes.length - 1) {
+      if(scene.dialogues[this.currentDialogue].toScenes !== undefined){
+        console.log('跳转场景[选项]')
+        this.currentScene += scene.dialogues[this.currentDialogue].toScenes;
+        this.loadScene(this.currentScene);
+      }else{
+        console.log('跳转场景')
+        this.currentScene++;
+        this.loadScene(this.currentScene);
+      }
+    } else {
+      if(scene.dialogues[this.currentDialogue].END !== undefined){
+        this.END = scene.dialogues[this.currentDialogue].END;
+        this.getFin(this.END);
+      }else if(scene.dialogues[this.currentDialogue].branch !== undefined){
+        console.log(this.choice)
+        console.log(scene.dialogues[this.currentDialogue].branch.choices)
+        if(JSON.stringify(this.choice)===JSON.stringify(scene.dialogues[this.currentDialogue].branch.choices)){
+          console.log('跳转章节[HE]')
+          this.chapter = scene.dialogues[this.currentDialogue].branch.toChapter;
+          this.loadData(this.chapter);
+          this.currentScene = 0;
+          this.currentDialogue = 0;
+        }
+        else{
+          console.log('跳转章节[BE]')
+          this.chapter = "BE";
+          this.loadData(this.chapter);
+          this.currentScene = 0;
+          this.currentDialogue = 0;
+        }
+      }else{
+        this.Img = 'bg.png';
+        setTimeout(() => {
+          this.chapter++;
+          this.loadData(this.chapter);
+          this.currentScene = 0;
+          this.currentDialogue = 0;
+        }, 3000);
+      }
+    }
+  },
+  onSwipe(e) {
+    if (e.direction == 'right') {
+      if (this.END !== '') { router.replace({uri: "/pages/index"}); return; }
+      if (this.gameOver && !this.menu) { router.replace({uri: "/pages/index"}); return; }
+      if (this.recovery !== 0) { this.recovery = 0; return; }
+      if (this.menu) { this.menu = false; return; }
+    }
+    if (e.direction == 'left') {
+      if (this.END === '' && this.recovery === 0 && !this.menu && !this.gameOver) {
+        this.openMenu();
+      }
+    }
+  },
+  openMenu() {
+    this.menu = true;
+  },
+  back(a){
+    if(a=='c'){
+      if(this.recovery!==0){this.recovery = 0}
+      else if(this.menu){this.menu = false}
+    }
+    else if(a=='e'){router.replace({uri: "/pages/index"})}
+  },
+  selectChoice(choiceIndex) {
+    console.log('选择选项', choiceIndex)
+    this.choice.push(choiceIndex);
+    console.log(this.choice)
+    const nextSceneIndex = this.gameData.scenes[this.currentScene].choices[choiceIndex].nextScene;
+    this.currentScene += nextSceneIndex;
+    this.loadScene(this.currentScene);
+  },
+  toRecoveryPage(a){
+    this.recovery = a;
+  },
+  saveRecoveryData(idx){
+    const data = {
+      chapter: this.chapter,
+      currentScene: this.currentScene,
+      currentDialogue: this.currentDialogue,
+      choice: this.choice,
+    }
+    if(idx === 'new'){
+      this.recoveryData.push(data);
+      prompt.showToast({message: '保存成功'})
+    }else{
+      this.recoveryData[idx] = data;
+      prompt.showToast({message: '覆盖成功'})
+    }
+    this.saveData()
+  },
+  deleteRecoveryData(idx){
+    this.recoveryData.splice(idx, 1);
+    this.saveData()
+    prompt.showToast({message: '删除成功'})
+  },
+  loadRecoveryData(idx){
+    const data = this.recoveryData[idx];
+    console.log('加载存档', data)
+    this.chapter = data.chapter;
+    this.currentScene = data.currentScene;
+    this.currentDialogue = data.currentDialogue;
+    this.choice = data.choice;
+    this.recovery = 0;
+    this.menu = false;
+    this.loadData(this.chapter);
+  },
+  skipScene(a){
+    if(this.gameData.scenes[this.currentScene].dialogues[this.gameData.scenes[this.currentScene].dialogues.length-1].toScenes ==undefined && this.gameData.scenes[this.currentScene].choices==undefined && this.gameData.scenes[this.currentScene].dialogues[this.gameData.scenes[this.currentScene].dialogues.length-1].END==undefined && this.gameData.scenes[this.currentScene].dialogues[this.gameData.scenes[this.currentScene].dialogues.length-1].branch==undefined&&this.currentScene+a<this.gameData.scenes.length){
+      this.currentScene+=a;
+      this.loadScene(this.currentScene);
+      this.menu = false;
+    }else{
+      this.menu = false;
+      prompt.showToast({message: '重要剧情或结尾，无法跳过'})
+    }
+  },
+  skipChapter(){
+    if(this.chapter==2||this.chapter==19||this.chapter==25||this.chapter==26){
+      prompt.showToast({message: '重要章节无法跳过'})
+    }else if(this.chapter==31||this.chapter=='TE'||this.chapter=='BE'){
+      prompt.showToast({message: '最后一章无法跳过'})
+    }else{
+      this.Img = 'bg.png';
+      this.menu = false;
+      setTimeout(() => {
+        this.chapter++;
+        this.loadData(this.chapter);
+        this.currentScene = 0;
+        this.currentDialogue = 0;
+      }, 3000);
+    }
+  },
+  saveData(){
+    storage.set({
+      key: 'recoveryData',
+      value: JSON.stringify(this.recoveryData),
+      success: () => {},
+      fail:()=>{},
+    })
+  },
+  getFin(a){
+    let fin = {};
+    storage.get({
+      key: 'fin',
+      success: (data) => {
+        if(data){
+          fin = JSON.parse(data);
+        }else{
+          fin = {"HE": false, "BE": false}
+        }
+        if(a=="Happy Ending"){
+          fin.HE = true;
+        }else if(a=="Bad Ending"){
+          fin.BE = true;
+        }
+        this.saveFin(fin);
+      },
+      fail:()=>{},
+    });
+  },
+  saveFin(a){
+    storage.set({
+      key: 'fin',
+      value: JSON.stringify(a),
+      success: () => {},
+      fail:()=>{},
+    })
+  },
+  consoleData(idx){
+    console.log('存档数据', this.recoveryData[idx])
+  },
+  scrollToTop() {
+  },
+}
+</script>
+
+<style>
+.page {
+  width: 336px;
+  height: 480px;
+  overflow: hidden;
+}
+.image-layer {
+  width: 336px;
+  height: 480px;
+  background-color: #000000;
+}
+.full-img {
+  width: 336px;
+  height: 480px;
+}
+/* 左侧文字面板背景 */
+.text-panel-bg {
+  position: absolute;
+  left: 0;
+  top: 0;
+  width: 160px;
+  height: 480px;
+  background-color: rgba(255, 153, 153, 0.5);
+  border-right: 3px solid rgba(80, 80, 80, 0.6);
+}
+/* 容器  */
+.text-rotated {
+  position: absolute;
+  left: 160px;
+  top: 0;
+  width: 480px;
+  height: 160px;
+  transform: rotate(90deg);
+  transform-origin: 0 0;
+  overflow: hidden;
+}
+/* 角色名 */
+.char-name-h {
+  position: absolute;
+  left: 8px;
+  top: 63px;
+  width: 100px;
+  height: 34px;
+  background-color: #FF9999;
+  border-radius: 17px;
+  color: #FFFFFF;
+  font-size: 18px;
+  font-weight: bold;
+  text-align: center;
+}
+/* 对话文字滚动区 */
+.dialogue-scroll-h {
+  position: absolute;
+  left: 120px;
+  top: 8px;
+  width: 260px;
+  height: 144px;
+}
+.dialogue-text-h {
+  color: #FFFFFF;
+  font-weight: bold;
+  width: 100%;
+}
+/* 退出按钮  */
+.exit-btn-h {
+  position: absolute;
+  left: 392px;
+  top: 63px;
+  width: 80px;
+  height: 34px;
+  background-color: #FF9999;
+  border-radius: 17px;
+  color: #FFFFFF;
+  font-size: 18px;
+  font-weight: bold;
+  text-align: center;
+}
+/* 选项覆盖层 */
+.choice-overlay {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 336px;
+  height: 480px;
+}
+.choice-btn {
+  position: absolute;
+  width: 220px;
+  height: 55px;
+  left: 58px;
+  background-color: #FF9999;
+  border-radius: 10px;
+  color: #FFFFFF;
+  font-size: 22px;
+  font-weight: bold;
+  text-align: center;
+}
+/* 深色半透明覆盖层（菜单/存档/读档） */
+.overlay {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 336px;
+  height: 480px;
+  background-color: rgba(0, 0, 0, 0.75);
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+}
+/* 返回按钮 */
+.back-btn {
+  position: absolute;
+  left: 10px;
+  top: 10px;
+  width: 70px;
+  height: 40px;
+  background-color: #FF9999;
+  border-radius: 8px;
+  color: #FFFFFF;
+  font-size: 20px;
+  font-weight: bold;
+  text-align: center;
+  z-index: 100;
+}
+.overlay-scroll {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 336px;
+  height: 480px;
+  overflow: hidden;
+  flex-direction: column;
+  align-items: center;
+}
+.overlay-label {
+  width: 280px;
+  height: 50px;
+  color: #FFFFFF;
+  font-size: 22px;
+  font-weight: bold;
+  text-align: center;
+  margin-bottom: 15px;
+}
+.overlay-btn {
+  width: 250px;
+  height: 55px;
+  background-color: #FF9999;
+  border-radius: 10px;
+  color: #FFFFFF;
+  font-size: 24px;
+  font-weight: bold;
+  text-align: center;
+  margin-bottom: 15px;
+}
+/* 浅色覆盖层（结局页） */
+.overlay-light {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 336px;
+  height: 480px;
+  background-color: rgba(255, 255, 255, 0.92);
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+}
+.ending-text {
+  font-size: 26px;
+  color: #333333;
+  font-weight: bold;
+  text-align: center;
+  margin-bottom: 10px;
+}
+.ending-title {
+  font-size: 30px;
+  color: #FF9999;
+  font-weight: bold;
+  text-align: center;
+  margin-bottom: 30px;
+}
+</style>
